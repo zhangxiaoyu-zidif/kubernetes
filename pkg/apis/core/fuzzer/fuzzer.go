@@ -401,7 +401,7 @@ var Funcs = func(codecs runtimeserializer.CodecFactory) []interface{} {
 			types := []core.PersistentVolumePhase{core.VolumeAvailable, core.VolumePending, core.VolumeBound, core.VolumeReleased, core.VolumeFailed}
 			pv.Status.Phase = types[c.Rand.Intn(len(types))]
 			pv.Status.Message = c.RandString()
-			reclamationPolicies := []core.PersistentVolumeReclaimPolicy{core.PersistentVolumeReclaimRecycle, core.PersistentVolumeReclaimRetain}
+			reclamationPolicies := []core.PersistentVolumeReclaimPolicy{core.PersistentVolumeReclaimRecycle, core.PersistentVolumeReclaimRetain, core.PersistentVolumeReclaimReuse}
 			pv.Spec.PersistentVolumeReclaimPolicy = reclamationPolicies[c.Rand.Intn(len(reclamationPolicies))]
 		},
 		func(pvc *core.PersistentVolumeClaim, c fuzz.Continue) {

@@ -507,6 +507,30 @@ func (ctrl *PersistentVolumeController) syncBoundClaim(claim *v1.PersistentVolum
 	}
 }
 
+func (ctrl *PersistentVolumeController) reuseVolumeOperation(volume *v1.PersistentVolume) {
+	glog.V(4).Infof("reuseVolumeOperation [%s] started", volume.Name)
+
+	// Save the PV only when any modification is necessary.
+	volumeClone := volume.DeepCopy()
+	volumeClone.Spec.ClaimRef = nil
+
+	newVol, err := ctrl.kubeClient.CoreV1().PersistentVolumes().Update(volumeClone)
+	if err != nil {
+		glog.V(4).Infof("updating PersistentVolume[%s]: clean ClaimRef failed: %v", volume.Name, err)
+		return
+	}
+	_, err = ctrl.storeVolumeUpdate(newVol)
+	if err != nil {
+		glog.V(4).Infof("updating PersistentVolume[%s]: cannot update internal cache: %v", volume.Name, err)
+		return
+	}
+	glog.V(4).Infof("updating PersistentVolume[%s]: cleaned ClaimRef", newVol.Name)
+
+	// Update the status
+	_, err = ctrl.updateVolumePhase(newVol, v1.VolumeAvailable, "")
+	return
+}
+
 // syncVolume is the main controller method to decide what to do with a volume.
 // It's invoked by appropriate cache.Controller callbacks when a volume is
 // created, updated or periodically synced. We do not differentiate between
@@ -525,6 +549,10 @@ func (ctrl *PersistentVolumeController) syncVolume(volume *v1.PersistentVolume) 
 		}
 		return nil
 	} else /* pv.Spec.ClaimRef != nil */ {
+		if volume.Status.Phase == v1.VolumeReleased && volume.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimReuse {
+			ctrl.reuseVolumeOperation(volume)
+		}
+
 		// Volume is bound to a claim.
 		if volume.Spec.ClaimRef.UID == "" {
 			// The PV is reserved for a PVC; that PVC has not yet been
@@ -1071,6 +1099,9 @@ func (ctrl *PersistentVolumeController) reclaimVolume(volume *v1.PersistentVolum
 	switch volume.Spec.PersistentVolumeReclaimPolicy {
 	case v1.PersistentVolumeReclaimRetain:
 		glog.V(4).Infof("reclaimVolume[%s]: policy is Retain, nothing to do", volume.Name)
+
+	case v1.PersistentVolumeReclaimReuse:
+		glog.V(4).Infof("reclaimVolume[%s]: policy is Reuse, nothing to do", volume.Name)
 
 	case v1.PersistentVolumeReclaimRecycle:
 		glog.V(4).Infof("reclaimVolume[%s]: policy is Recycle", volume.Name)
