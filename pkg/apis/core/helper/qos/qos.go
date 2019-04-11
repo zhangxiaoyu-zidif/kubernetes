@@ -40,6 +40,18 @@ func GetPodQOS(pod *core.Pod) core.PodQOSClass {
 	zeroQuantity := resource.MustParse("0")
 	isGuaranteed := true
 	for _, container := range pod.Spec.Containers {
+		isSidecarContainer := false
+		if len(container.Env) > 0 {
+			for _, env := range container.Env {
+				if env.Name == "SIDECAR" && env.Value == "true"{
+					isSidecarContainer = true
+				}
+			}
+		}
+		if isSidecarContainer {
+			continue
+		}
+
 		// process requests
 		for name, quantity := range container.Resources.Requests {
 			if !isSupportedQoSComputeResource(name) {
