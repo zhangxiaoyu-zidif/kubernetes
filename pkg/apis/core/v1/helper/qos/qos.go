@@ -45,7 +45,7 @@ func GetPodQOS(pod *v1.Pod) v1.PodQOSClass {
 		isSidecarContainer := false
 		if len(container.Env) > 0 {
 			for _, env := range container.Env {
-				if env.Name == "SIDECAR" && env.Value == "true" {
+				if env.Name == "IS_SIDECAR" && env.Value == "true" {
 					isSidecarContainer = true
 				}
 			}
