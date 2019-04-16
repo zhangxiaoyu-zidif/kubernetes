@@ -58,7 +58,9 @@ func PodRequestsAndLimits(pod *api.Pod) (reqs api.ResourceList, limits api.Resou
 	reqs, limits = api.ResourceList{}, api.ResourceList{}
 	for _, container := range pod.Spec.Containers {
 		addResourceList(reqs, container.Resources.Requests)
-		addResourceList(limits, container.Resources.Limits)
+		if !isSidecarContainer(container){
+			addResourceList(limits, container.Resources.Limits)
+		}	
 	}
 	// init containers define the minimum of any resource
 	for _, container := range pod.Spec.InitContainers {
@@ -66,6 +68,20 @@ func PodRequestsAndLimits(pod *api.Pod) (reqs api.ResourceList, limits api.Resou
 		maxResourceList(limits, container.Resources.Limits)
 	}
 	return
+}
+
+// isSidecarContainer checks if container is a sidecar one.
+func isSidecarContainer(container api.Container) bool{
+	isSidecarContainer := false
+	if len(container.Env) > 0 {
+		for _, env := range container.Env {
+			if env.Name == "IS_SIDECAR" && env.Value == "true" {
+				isSidecarContainer = true
+				break
+			}
+		}
+	}
+	return isSidecarContainer
 }
 
 // ExtractContainerResourceValue extracts the value of a resource

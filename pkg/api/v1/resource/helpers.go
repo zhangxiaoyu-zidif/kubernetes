@@ -58,7 +58,9 @@ func PodRequestsAndLimits(pod *v1.Pod) (reqs, limits v1.ResourceList) {
 	reqs, limits = v1.ResourceList{}, v1.ResourceList{}
 	for _, container := range pod.Spec.Containers {
 		addResourceList(reqs, container.Resources.Requests)
-		addResourceList(limits, container.Resources.Limits)
+		if !isSidecarContainer(container){
+			addResourceList(limits, container.Resources.Limits)
+		}
 	}
 	// init containers define the minimum of any resource
 	for _, container := range pod.Spec.InitContainers {
@@ -66,6 +68,20 @@ func PodRequestsAndLimits(pod *v1.Pod) (reqs, limits v1.ResourceList) {
 		maxResourceList(limits, container.Resources.Limits)
 	}
 	return
+}
+
+// isSidecarContainer checks if container is a sidecar one.
+func isSidecarContainer(container v1.Container) bool{
+	isSidecarContainer := false
+	if len(container.Env) > 0 {
+		for _, env := range container.Env {
+			if env.Name == "IS_SIDECAR" && env.Value == "true" {
+				isSidecarContainer = true
+				break
+			}
+		}
+	}
+	return isSidecarContainer
 }
 
 // GetResourceRequest finds and returns the request for a specific resource.
