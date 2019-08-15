@@ -20,6 +20,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+
+	"strings"
+
 	"time"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
@@ -30,6 +34,7 @@ import (
 	kubetypes "k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/tools/record"
 	ref "k8s.io/client-go/tools/reference"
 	"k8s.io/client-go/util/flowcontrol"
@@ -37,11 +42,13 @@ import (
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/credentialprovider"
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/events"
 	"k8s.io/kubernetes/pkg/kubelet/images"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
+	kubepod "k8s.io/kubernetes/pkg/kubelet/pod"
 	proberesults "k8s.io/kubernetes/pkg/kubelet/prober/results"
 	"k8s.io/kubernetes/pkg/kubelet/runtimeclass"
 	"k8s.io/kubernetes/pkg/kubelet/types"
@@ -62,6 +69,8 @@ const (
 	versionCacheTTL = 60 * time.Second
 	// How frequently to report identical errors
 	identicalErrorDelay = 1 * time.Minute
+	// TODO: move to sigma.k8s.io repo.
+	ForbidRestartingLivenessProbeContainer = "alibabacloud.com/ForbidRestartingLivenessProbeContainer"
 )
 
 var (
@@ -129,6 +138,9 @@ type kubeGenericRuntimeManager struct {
 
 	// Cache last per-container error message to reduce log spam
 	logReduction *logreduction.LogReduction
+
+	// kubeGenericRuntimeManager can get new pod from podManager.
+	podManager kubepod.Manager
 }
 
 // KubeGenericRuntime is a interface contains interfaces for container runtime and command.
@@ -166,6 +178,7 @@ func NewKubeGenericRuntimeManager(
 	internalLifecycle cm.InternalContainerLifecycle,
 	legacyLogProvider LegacyLogProvider,
 	runtimeClassManager *runtimeclass.Manager,
+	podManager kubepod.Manager,
 ) (KubeGenericRuntime, error) {
 	kubeRuntimeManager := &kubeGenericRuntimeManager{
 		recorder:            recorder,
@@ -184,6 +197,7 @@ func NewKubeGenericRuntimeManager(
 		legacyLogProvider:   legacyLogProvider,
 		runtimeClassManager: runtimeClassManager,
 		logReduction:        logreduction.NewLogReduction(identicalErrorDelay),
+		podManager:          podManager,
 	}
 
 	typedVersion, err := kubeRuntimeManager.runtimeService.Version(kubeRuntimeAPIVersion)
@@ -565,15 +579,128 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 		// The container is running, but kill the container if any of the following condition is met.
 		var message string
 		restart := shouldRestartOnFailure(pod)
+		var ForbidRestartingLivenessProbeContainerSwtich = false
+		if pod.Annotations != nil {
+			if AnnotationOfForbidRestartingLivenessProbeContainerSwtich, ok := pod.Annotations[ForbidRestartingLivenessProbeContainer]; ok {
+				if strings.ToLower(AnnotationOfForbidRestartingLivenessProbeContainerSwtich) == "true" {
+					ForbidRestartingLivenessProbeContainerSwtich = true
+				}
+			}
+		}
+
 		if _, _, changed := containerChanged(&container, containerStatus); changed {
 			message = fmt.Sprintf("Container %s definition changed", container.Name)
 			// Restart regardless of the restart policy because the container
 			// spec changed.
 			restart = true
-		} else if liveness, found := m.livenessManager.Get(containerStatus.ID); found && liveness == proberesults.Failure {
+		} else if liveness, found := m.livenessManager.Get(containerStatus.ID); found && liveness == proberesults.Failure && !(utilfeature.DefaultFeatureGate.Enabled(features.ForbidRestartingLivenessProbeContainer) && ForbidRestartingLivenessProbeContainerSwtich) {
 			// If the container failed the liveness probe, we should kill it.
 			message = fmt.Sprintf("Container %s failed liveness probe", container.Name)
 		} else {
+			if found && utilfeature.DefaultFeatureGate.Enabled(features.ForbidRestartingLivenessProbeContainer) && ForbidRestartingLivenessProbeContainerSwtich {
+				// TODO: Update Pod status.
+				// ContainersLivenessprobePassedCondition is last pod's livenessprobe condition.
+				var ContainersLivenessprobePassedCondition *v1.PodCondition
+				if pod.Status.Conditions != nil {
+					exist := false
+					for index := 0; index < len(pod.Status.Conditions); index++ {
+						if pod.Status.Conditions[index].Type == v1.ContainersLivenessprobePassed {
+							exist = true
+							ContainersLivenessprobePassedCondition = &pod.Status.Conditions[index]
+							break
+						}
+					}
+
+					if exist {
+						// ContainersLivenessprobePassedCondition exists in pod.Status.Conditions.
+						var containerNames []string
+						if liveness == proberesults.Failure {
+							ContainersLivenessprobePassedCondition.LastProbeTime = metav1.Now()
+							ContainersLivenessprobePassedCondition.Reason = "some livenessProbes check failed"
+							if ContainersLivenessprobePassedCondition.Status == v1.ConditionTrue {
+								// change Status to false
+								ContainersLivenessprobePassedCondition.LastTransitionTime = metav1.Now()
+								ContainersLivenessprobePassedCondition.Status = v1.ConditionFalse
+								ContainersLivenessprobePassedCondition.Message = container.Name
+							} else {
+								containerNames = strings.Split(ContainersLivenessprobePassedCondition.Message, ",")
+								if len(containerNames) > 0 {
+									if !Contain(containerNames, container.Name) {
+										ContainersLivenessprobePassedCondition.Message = ContainersLivenessprobePassedCondition.Message + "," + container.Name
+									}
+								} else {
+									ContainersLivenessprobePassedCondition.Message = container.Name
+								}
+							}
+						}
+
+						if liveness == proberesults.Success {
+							// last probe is false
+							if ContainersLivenessprobePassedCondition.Status != v1.ConditionTrue {
+								containerNames = strings.Split(ContainersLivenessprobePassedCondition.Message, ",")
+								for k, v := range containerNames {
+									if v == container.Name {
+										// Delete this element
+										containerNames = append(containerNames[:k], containerNames[k+1:]...)
+									}
+								}
+								ContainersLivenessprobePassedCondition.LastProbeTime = metav1.Now()
+								if len(containerNames) == 0 {
+									// change PodCondition Status
+									ContainersLivenessprobePassedCondition.Status = v1.ConditionTrue
+									ContainersLivenessprobePassedCondition.Message = "all livenessProbes check successfully"
+
+									ContainersLivenessprobePassedCondition.Reason = "successfully"
+								} else {
+									// ContainersLivenessprobePassedCondition changes.
+									ContainersLivenessprobePassedCondition.LastTransitionTime = metav1.Now()
+									ContainersLivenessprobePassedCondition.Message = strings.Replace(strings.Trim(fmt.Sprint(containerNames), "[]"), " ", ",", -1)
+								}
+							}
+							// last probe is true
+							if ContainersLivenessprobePassedCondition.Status == v1.ConditionTrue {
+								// Do nothing
+							}
+						}
+					} else {
+						// create a ContainersLivenessprobePassedCondition for pod.Status.Conditions
+						ContainersLivenessprobePassedCondition.Type = v1.ContainersLivenessprobePassed
+						ContainersLivenessprobePassedCondition.LastProbeTime = metav1.Now()
+						ContainersLivenessprobePassedCondition.LastTransitionTime = metav1.Now()
+						if liveness == proberesults.Failure {
+							ContainersLivenessprobePassedCondition.Status = v1.ConditionFalse
+							ContainersLivenessprobePassedCondition.Reason = "some livenessProbes check failed"
+							ContainersLivenessprobePassedCondition.Message = container.Name
+						} else {
+							ContainersLivenessprobePassedCondition.Status = v1.ConditionTrue
+							ContainersLivenessprobePassedCondition.Message = "all livenessProbes check successfully"
+							ContainersLivenessprobePassedCondition.Reason = "successfully"
+						}
+						pod.Status.Conditions = append(pod.Status.Conditions, *ContainersLivenessprobePassedCondition)
+					}
+				} else {
+					// create pod.Status.Conditions
+					pod.Status.Conditions = []v1.PodCondition{}
+					// create a ContainersLivenessprobePassedCondition for pod.Status.Conditions
+					ContainersLivenessprobePassedCondition.Type = v1.ContainersLivenessprobePassed
+					ContainersLivenessprobePassedCondition.LastProbeTime = metav1.Now()
+					ContainersLivenessprobePassedCondition.LastTransitionTime = metav1.Now()
+					if liveness == proberesults.Failure {
+						ContainersLivenessprobePassedCondition.Status = v1.ConditionFalse
+						ContainersLivenessprobePassedCondition.Reason = "some livenessProbes check failed"
+						ContainersLivenessprobePassedCondition.Message = container.Name
+					} else {
+						ContainersLivenessprobePassedCondition.Status = v1.ConditionTrue
+						ContainersLivenessprobePassedCondition.Message = "all livenessProbes check successfully"
+						ContainersLivenessprobePassedCondition.Reason = "successfully"
+					}
+					pod.Status.Conditions = append(pod.Status.Conditions, *ContainersLivenessprobePassedCondition)
+				}
+
+				// update pod.Status.Conditions
+				m.podManager.UpdatePod(pod)
+
+			}
 			// Keep the container.
 			keepCount++
 			continue
@@ -600,6 +727,24 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 	}
 
 	return changes
+}
+
+func Contain(target interface{}, obj interface{}) bool {
+	targetValue := reflect.ValueOf(target)
+	switch reflect.TypeOf(target).Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < targetValue.Len(); i++ {
+			if targetValue.Index(i).Interface() == obj {
+				return true
+			}
+		}
+	case reflect.Map:
+		if targetValue.MapIndex(reflect.ValueOf(obj)).IsValid() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // SyncPod syncs the running pod into the desired pod by executing following steps:

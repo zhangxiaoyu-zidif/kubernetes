@@ -17,7 +17,9 @@ limitations under the License.
 package prober
 
 import (
+	"k8s.io/kubernetes/pkg/features"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +30,12 @@ import (
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/prober/results"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+)
+
+const(
+	// TODO: move to sigma.k8s.io repo.
+	ForbidRestartingLivenessProbeContainer = "alibabacloud.com/ForbidRestartingLivenessProbeContainer"
 )
 
 // worker handles the periodic probing of its assigned container. Each worker has a go-routine
@@ -255,7 +263,16 @@ func (w *worker) doProbe() (keepGoing bool) {
 
 	w.resultsManager.Set(w.containerID, result, w.pod)
 
-	if w.probeType == liveness && result == results.Failure {
+	var ForbidRestartingLivenessProbeContainerSwtich = false
+	if w.pod.Annotations != nil {
+		if AnnotationOfForbidRestartingLivenessProbeContainerSwtich, ok := w.pod.Annotations[ForbidRestartingLivenessProbeContainer]; ok {
+			if strings.ToLower(AnnotationOfForbidRestartingLivenessProbeContainerSwtich) == "true" {
+				ForbidRestartingLivenessProbeContainerSwtich = true
+			}
+		}
+	}
+
+	if w.probeType == liveness && result == results.Failure  && !(utilfeature.DefaultFeatureGate.Enabled(features.ForbidRestartingLivenessProbeContainer) && ForbidRestartingLivenessProbeContainerSwtich)  {
 		// The container fails a liveness check, it will need to be restarted.
 		// Stop probing until we see a new container ID. This is to reduce the
 		// chance of hitting #21751, where running `docker exec` when a

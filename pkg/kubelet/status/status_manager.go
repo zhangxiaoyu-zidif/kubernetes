@@ -348,6 +348,9 @@ func (m *manager) updateStatusInternal(pod *v1.Pod, status v1.PodStatus, forceUp
 	// Set PodScheduledCondition.LastTransitionTime.
 	updateLastTransitionTime(&status, &oldStatus, v1.PodScheduled)
 
+	// Set ContainersLivenessprobePassedCondition.LastTransitionTime.
+	updateLastTransitionTime(&status, &oldStatus, v1.ContainersLivenessprobePassed)
+
 	// ensure that the start time does not change across updates.
 	if oldStatus.StartTime != nil && !oldStatus.StartTime.IsZero() {
 		status.StartTime = oldStatus.StartTime

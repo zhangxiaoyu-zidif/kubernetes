@@ -2436,6 +2436,8 @@ const (
 	// PodReasonUnschedulable reason in PodScheduled PodCondition means that the scheduler
 	// can't schedule the pod right now, for example due to insufficient resources in the cluster.
 	PodReasonUnschedulable = "Unschedulable"
+	// ContainersLivenessprobePassed indicates whether all containers pass Livenessprobe.
+	ContainersLivenessprobePassed PodConditionType = "ContainersLivenessprobePassed"
 )
 
 // PodCondition contains details for the current condition of this pod.

@@ -466,8 +466,15 @@ const (
 	// owner: @Huang-Wei
 	// alpha: v1.16
 	//
+
 	// Schedule pods evenly across available topology domains.
 	EvenPodsSpread featuregate.Feature = "EvenPodsSpread"
+
+	// owner: @zhangxiaoyu-zidif
+	// alpha: v1.14
+	//
+	// Forbid kubelet to restart container when livenessProbe failed.
+	ForbidRestartingLivenessProbeContainer featuregate.Feature = "ForbidRestartingLivenessProbeContainer"
 )
 
 func init() {
@@ -546,6 +553,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	PodOverhead:                                    {Default: false, PreRelease: featuregate.Alpha},
 	IPv6DualStack:                                  {Default: false, PreRelease: featuregate.Alpha},
 	EvenPodsSpread:                                 {Default: false, PreRelease: featuregate.Alpha},
+	ForbidRestartingLivenessProbeContainer:         {Default: true, PreRelease: featuregate.Alpha},
 
 	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
 	// unintentionally on either side:
