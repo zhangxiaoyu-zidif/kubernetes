@@ -35,6 +35,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	ref "k8s.io/client-go/tools/reference"
 	"k8s.io/client-go/util/flowcontrol"
@@ -141,6 +142,8 @@ type kubeGenericRuntimeManager struct {
 
 	// kubeGenericRuntimeManager can get new pod from podManager.
 	podManager kubepod.Manager
+
+	kubeClient clientset.Interface
 }
 
 // KubeGenericRuntime is a interface contains interfaces for container runtime and command.
@@ -179,6 +182,7 @@ func NewKubeGenericRuntimeManager(
 	legacyLogProvider LegacyLogProvider,
 	runtimeClassManager *runtimeclass.Manager,
 	podManager kubepod.Manager,
+	kubeClient clientset.Interface,
 ) (KubeGenericRuntime, error) {
 	kubeRuntimeManager := &kubeGenericRuntimeManager{
 		recorder:            recorder,
@@ -198,6 +202,7 @@ func NewKubeGenericRuntimeManager(
 		runtimeClassManager: runtimeClassManager,
 		logReduction:        logreduction.NewLogReduction(identicalErrorDelay),
 		podManager:          podManager,
+		kubeClient:          kubeClient,
 	}
 
 	typedVersion, err := kubeRuntimeManager.runtimeService.Version(kubeRuntimeAPIVersion)
@@ -718,8 +723,8 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 
 				// update pod.Status.Conditions
 				klog.V(0).Infof("update liveness status. pod: %v, container: %v", pod.Name, container.Name)
-				m.podManager.UpdatePod(pod)
-
+				//m.podManager.UpdatePod(pod)
+				m.kubeClient.CoreV1().Pods(pod.Namespace).Update(pod)
 			}
 			// Keep the container.
 			keepCount++

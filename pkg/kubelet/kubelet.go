@@ -690,6 +690,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		legacyLogProvider,
 		klet.runtimeClassManager,
 		klet.podManager,
+		klet.kubeClient,
 	)
 	if err != nil {
 		return nil, err
