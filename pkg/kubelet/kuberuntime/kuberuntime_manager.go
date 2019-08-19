@@ -580,6 +580,7 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 		var message string
 		restart := shouldRestartOnFailure(pod)
 		var ForbidRestartingLivenessProbeContainerSwtich = false
+
 		if pod.Annotations != nil {
 			if AnnotationOfForbidRestartingLivenessProbeContainerSwtich, ok := pod.Annotations[ForbidRestartingLivenessProbeContainer]; ok {
 				if strings.ToLower(AnnotationOfForbidRestartingLivenessProbeContainerSwtich) == "true" {
@@ -587,6 +588,8 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 				}
 			}
 		}
+
+		klog.V(0).Infof("ForbidRestartingLivenessProbeContainerSwtich. pod: %v, container: %v, ForbidRestartingLivenessProbeContainerSwtich: %v", pod.Name, container.Name, ForbidRestartingLivenessProbeContainerSwtich)
 
 		if _, _, changed := containerChanged(&container, containerStatus); changed {
 			message = fmt.Sprintf("Container %s definition changed", container.Name)
@@ -597,12 +600,14 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 			// If the container failed the liveness probe, we should kill it.
 			message = fmt.Sprintf("Container %s failed liveness probe", container.Name)
 		} else {
+
 			if found && utilfeature.DefaultFeatureGate.Enabled(features.ForbidRestartingLivenessProbeContainer) && ForbidRestartingLivenessProbeContainerSwtich {
 				// TODO: Update Pod status.
 				// ContainersLivenessprobePassedCondition is last pod's livenessprobe condition.
 				klog.V(0).Infof("liveness check failed. pod: %v, container: %v", pod.Name, container.Name)
 				var ContainersLivenessprobePassedCondition *v1.PodCondition
 				if pod.Status.Conditions != nil {
+					klog.V(0).Infof("pod.Status.Conditions is not nil")
 					exist := false
 					for index := 0; index < len(pod.Status.Conditions); index++ {
 						if pod.Status.Conditions[index].Type == v1.ContainersLivenessprobePassed {
@@ -680,8 +685,10 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 							ContainersLivenessprobePassedCondition.Reason = "successfully"
 						}
 						pod.Status.Conditions = append(pod.Status.Conditions, *ContainersLivenessprobePassedCondition)
+						klog.V(0).Infof("pod.Status.Conditions: %v", pod.Status.Conditions)
 					}
 				} else {
+					klog.V(0).Infof("pod.Status.Conditions is nil")
 					klog.V(0).Infof("pod.Status.Conditions status do not existed: v1.ContainersLivenessprobePassed.")
 					// create pod.Status.Conditions
 					pod.Status.Conditions = []v1.PodCondition{}
@@ -701,6 +708,7 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 						ContainersLivenessprobePassedCondition.Reason = "successfully"
 					}
 					pod.Status.Conditions = append(pod.Status.Conditions, *ContainersLivenessprobePassedCondition)
+					klog.V(0).Infof("pod.Status.Conditions: %v", pod.Status.Conditions)
 				}
 
 				// update pod.Status.Conditions
