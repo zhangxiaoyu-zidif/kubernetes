@@ -600,11 +600,13 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 			if found && utilfeature.DefaultFeatureGate.Enabled(features.ForbidRestartingLivenessProbeContainer) && ForbidRestartingLivenessProbeContainerSwtich {
 				// TODO: Update Pod status.
 				// ContainersLivenessprobePassedCondition is last pod's livenessprobe condition.
+				klog.V(0).Infof("liveness check failed. pod: %v, container: %v", pod.Name, container.Name)
 				var ContainersLivenessprobePassedCondition *v1.PodCondition
 				if pod.Status.Conditions != nil {
 					exist := false
 					for index := 0; index < len(pod.Status.Conditions); index++ {
 						if pod.Status.Conditions[index].Type == v1.ContainersLivenessprobePassed {
+							klog.V(0).Infof("liveness status existed: v1.ContainersLivenessprobePassed.")
 							exist = true
 							ContainersLivenessprobePassedCondition = &pod.Status.Conditions[index]
 							break
@@ -663,6 +665,7 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 							}
 						}
 					} else {
+						klog.V(0).Infof("liveness status do not existed: v1.ContainersLivenessprobePassed.")
 						// create a ContainersLivenessprobePassedCondition for pod.Status.Conditions
 						ContainersLivenessprobePassedCondition.Type = v1.ContainersLivenessprobePassed
 						ContainersLivenessprobePassedCondition.LastProbeTime = metav1.Now()
@@ -679,6 +682,7 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 						pod.Status.Conditions = append(pod.Status.Conditions, *ContainersLivenessprobePassedCondition)
 					}
 				} else {
+					klog.V(0).Infof("pod.Status.Conditions status do not existed: v1.ContainersLivenessprobePassed.")
 					// create pod.Status.Conditions
 					pod.Status.Conditions = []v1.PodCondition{}
 					// create a ContainersLivenessprobePassedCondition for pod.Status.Conditions
@@ -686,10 +690,12 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 					ContainersLivenessprobePassedCondition.LastProbeTime = metav1.Now()
 					ContainersLivenessprobePassedCondition.LastTransitionTime = metav1.Now()
 					if liveness == proberesults.Failure {
+						klog.V(0).Infof("proberesults.Failure: pod.Status.Conditions status do not existed.")
 						ContainersLivenessprobePassedCondition.Status = v1.ConditionFalse
 						ContainersLivenessprobePassedCondition.Reason = "some livenessProbes check failed"
 						ContainersLivenessprobePassedCondition.Message = container.Name
 					} else {
+						klog.V(0).Infof("proberesults.Successfully: pod.Status.Conditions status do not existed.")
 						ContainersLivenessprobePassedCondition.Status = v1.ConditionTrue
 						ContainersLivenessprobePassedCondition.Message = "all livenessProbes check successfully"
 						ContainersLivenessprobePassedCondition.Reason = "successfully"
@@ -698,6 +704,7 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 				}
 
 				// update pod.Status.Conditions
+				klog.V(0).Infof("update liveness status. pod: %v, container: %v", pod.Name, container.Name)
 				m.podManager.UpdatePod(pod)
 
 			}

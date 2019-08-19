@@ -553,7 +553,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	PodOverhead:                                    {Default: false, PreRelease: featuregate.Alpha},
 	IPv6DualStack:                                  {Default: false, PreRelease: featuregate.Alpha},
 	EvenPodsSpread:                                 {Default: false, PreRelease: featuregate.Alpha},
-	ForbidRestartingLivenessProbeContainer:         {Default: true, PreRelease: featuregate.Alpha},
+	ForbidRestartingLivenessProbeContainer:         {Default: true, PreRelease: featuregate.GA},
 
 	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
 	// unintentionally on either side:
