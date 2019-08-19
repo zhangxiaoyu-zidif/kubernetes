@@ -56,6 +56,8 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/util/cache"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
 	"k8s.io/kubernetes/pkg/kubelet/util/logreduction"
+	statusutil "k8s.io/kubernetes/pkg/util/pod"
+	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 const (
@@ -607,7 +609,7 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 		} else {
 
 			if found && utilfeature.DefaultFeatureGate.Enabled(features.ForbidRestartingLivenessProbeContainer) && ForbidRestartingLivenessProbeContainerSwtich {
-				// TODO: Update Pod status.
+				oldStatus := pod.Status.DeepCopy()
 				// ContainersLivenessprobePassedCondition is last pod's livenessprobe condition.
 				klog.V(0).Infof("liveness check failed. pod: %v, container: %v", pod.Name, container.Name)
 				var ContainersLivenessprobePassedCondition v1.PodCondition
@@ -725,6 +727,12 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 				klog.V(0).Infof("update liveness status. pod: %v, container: %v", pod.Name, container.Name)
 				//m.podManager.UpdatePod(pod)
 				m.kubeClient.CoreV1().Pods(pod.Namespace).Update(pod)
+
+
+				_, _, err := statusutil.PatchPodStatus(m.kubeClient, pod.Namespace, pod.Name, *oldStatus, mergePodStatus(*oldStatus, pod.Status))
+				if err != nil {
+					klog.V(0).Infof("update liveness status failed. err: %v", err)
+				}
 			}
 			// Keep the container.
 			keepCount++
@@ -752,6 +760,25 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 	}
 
 	return changes
+}
+
+// mergePodStatus merges oldPodStatus and newPodStatus where pod conditions
+// not owned by kubelet is preserved from oldPodStatus
+func mergePodStatus(oldPodStatus, newPodStatus v1.PodStatus) v1.PodStatus {
+	podConditions := []v1.PodCondition{}
+	for _, c := range oldPodStatus.Conditions {
+		if !kubelettypes.PodConditionByKubelet(c.Type) {
+			podConditions = append(podConditions, c)
+		}
+	}
+
+	for _, c := range newPodStatus.Conditions {
+		if kubelettypes.PodConditionByKubelet(c.Type) {
+			podConditions = append(podConditions, c)
+		}
+	}
+	newPodStatus.Conditions = podConditions
+	return newPodStatus
 }
 
 func Contain(target interface{}, obj interface{}) bool {
