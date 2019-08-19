@@ -53,11 +53,11 @@ import (
 	proberesults "k8s.io/kubernetes/pkg/kubelet/prober/results"
 	"k8s.io/kubernetes/pkg/kubelet/runtimeclass"
 	"k8s.io/kubernetes/pkg/kubelet/types"
+	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/kubelet/util/cache"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
 	"k8s.io/kubernetes/pkg/kubelet/util/logreduction"
 	statusutil "k8s.io/kubernetes/pkg/util/pod"
-	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 const (
@@ -726,13 +726,13 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 				// update pod.Status.Conditions
 				klog.V(0).Infof("update liveness status. pod: %v, container: %v", pod.Name, container.Name)
 				//m.podManager.UpdatePod(pod)
-				m.kubeClient.CoreV1().Pods(pod.Namespace).Update(pod)
+				//m.kubeClient.CoreV1().Pods(pod.Namespace).Update(pod)
+				_, patchBytes, err := statusutil.PatchPodStatus(m.kubeClient, pod.Namespace, pod.Name, *oldStatus, mergePodStatus(*oldStatus, pod.Status))
 
-
-				_, _, err := statusutil.PatchPodStatus(m.kubeClient, pod.Namespace, pod.Name, *oldStatus, mergePodStatus(*oldStatus, pod.Status))
 				if err != nil {
 					klog.V(0).Infof("update liveness status failed. err: %v", err)
 				}
+				klog.V(0).Infof("Patch status for pod %q with %q", format.Pod(pod), patchBytes)
 			}
 			// Keep the container.
 			keepCount++
