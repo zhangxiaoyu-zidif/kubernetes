@@ -721,13 +721,14 @@ func (m *kubeGenericRuntimeManager) computePodActions(pod *v1.Pod, podStatus *ku
 					klog.V(0).Infof("ContainersLivenessprobePassedCondition: %v", ContainersLivenessprobePassedCondition)
 					pod.Status.Conditions = append(pod.Status.Conditions, ContainersLivenessprobePassedCondition)
 					klog.V(0).Infof("pod.Status.Conditions: %v", pod.Status.Conditions)
+					klog.V(0).Infof("pod.Status: %v", pod.Status)
 				}
 
 				// update pod.Status.Conditions
 				klog.V(0).Infof("update liveness status. pod: %v, container: %v", pod.Name, container.Name)
 				//m.podManager.UpdatePod(pod)
 				//m.kubeClient.CoreV1().Pods(pod.Namespace).Update(pod)
-				_, patchBytes, err := statusutil.PatchPodStatus(m.kubeClient, pod.Namespace, pod.Name, *oldStatus, mergePodStatus(*oldStatus, pod.Status))
+				_, patchBytes, err := statusutil.PatchPodStatus(m.kubeClient, pod.Namespace, pod.Name, *oldStatus, pod.Status)
 
 				if err != nil {
 					klog.V(0).Infof("update liveness status failed. err: %v", err)
